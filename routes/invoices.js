@@ -37,7 +37,7 @@ router.get('/:id', async (req, res, next) => {
     }
 })
 
-// Add a single invoice
+// Add a new invoice
 // Takes JSON data of the form {comp_code, amt}
 // JSON response of the form {invoice: {id, comp_code, amt, paid, add_date, paid_date}}
 router.post('/', async (req, res, next) => {
@@ -56,12 +56,29 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
     try {
         const {id} = req.params;
-        const {amt} = req.body;
-        const results = await db.query(
-            "UPDATE invoices SET amt=$1 WHERE id=$2 returning *", [amt, id]);
-        if (results.rows.length === 0) {
+        const pdResults = await db.query("SELECT paid, paid_date from invoices");
+        if (pdResults.rows.length === 0) {
             throw new ExpressError(`Invoice with id ${id} cannot be found`, 404);
         }
+        const pdStatus = pdResults.rows[0].paid;
+        const pdDate = pdResults.rows[0].paid_date;
+
+
+        const {amt, paid} = req.body;
+        let paid_date;
+        if (pdStatus === false && paid === true) {
+            paid_date = new Date();
+        } else if (pdStatus === true && paid === false) {
+            paid_date = null;
+        } else {
+            paid_date = pdDate;
+        }
+
+        const results = await db.query(
+            `UPDATE invoices SET 
+                amt=$1, paid=$2, paid_date=$3 
+                WHERE id=$4 returning *`, [amt, paid, paid_date, id]);
+
         res.json({invoice: results.rows[0]})
     } catch(err) {
         next(err);

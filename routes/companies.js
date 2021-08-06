@@ -1,4 +1,6 @@
 const express = require("express");
+const slugify = require("slugify");
+
 const ExpressError = require("../expressError")
 
 const router = express.Router();
@@ -16,32 +18,42 @@ router.get('/', async (req, res, next) => {
 })
 
 // GET a single company
-// JSON response of the form {company: {code, name, description, invoices: [id, ...]}}
+// JSON response of the form {company: {code, name, description, invoices: [id, ...], industries: [id, ...]}}
 router.get('/:code', async (req, res, next) => {
     try {
         const {code} = req.params;
-        const results = await db.query("SELECT * FROM companies JOIN invoices ON code=comp_code WHERE code=$1", [code]);
+        const results = await db.query(`
+            SELECT * FROM companies 
+            LEFT JOIN invoices ON companies.code=invoices.comp_code 
+            LEFT JOIN companies_industries ON companies.code=companies_industries.comp_code 
+            LEFT JOIN industries ON industries.code=companies_industries.ind_code 
+            WHERE companies.code=$1`, [code]);
         if (results.rows.length === 0) {
             throw new ExpressError(`Company with code ${code} cannot be found`, 404);
         }
         const compRes = results.rows[0];
-        const invoiceIds = results.rows.map(row => row.id)
+        const invoiceIds = [...new Set(results.rows.map(row => row.id))];
+        const industriesArr = [...new Set(results.rows.map(row => row.industry))];
+
+        console.log(industriesArr);
         const company = {code: compRes.code, name: compRes.name, description: compRes.description, 
-                         invoices: invoiceIds}
+                         invoices: invoiceIds, industries: industriesArr}
+
         return res.json({company: company});
     } catch(err) {
         next(err);
     }
 })
 
-// Add a single company
+// Add a new company
 // Takes JSON data of the form {code, name, description}
 // JSON response of the form {company: {code, name, description}}
 router.post('/', async (req, res, next) => {
     try {
-        const {code, name, description} = req.body;
+        // const {code, name, description} = req.body;
+        const {name, description} = req.body;
+        const code = slugify(name, {lower: true});
         const results = await db.query("INSERT INTO companies (code, name, description) VALUES ($1, $2, $3) RETURNING *", [code, name, description]);
-        console.log(results)
         return res.status(201).json({company: results.rows[0]});
     } catch(err) {
         next(err);
